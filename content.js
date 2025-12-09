@@ -44,7 +44,7 @@ function scanForLists() {
         count: l.items.length,
         tagName: l.tagName,
         sampleText: l.sampleText
-    }));
+    })).sort((a, b) => b.count - a.count);
 }
 
 function highlightList(id) {

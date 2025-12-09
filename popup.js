@@ -128,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const div = document.createElement('div');
             div.className = 'list-item';
             div.innerHTML = `
-                <h3>${list.tagName} List (${list.count} items)</h3>
+                <h3>${list.tagName} List <span class="count">${list.count} items</span></h3>
                 <p>${list.sampleText}</p>
             `;
             div.addEventListener('click', () => {

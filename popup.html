@@ -8,14 +8,24 @@
 <body>
     <div class="container">
         <h1>List Exporter</h1>
-        <button id="scanBtn" class="primary-btn">Scan for Lists</button>
+        <button id="scanBtn" class="primary-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+            Scan for Lists
+        </button>
         
         <div id="listContainer" class="list-container">
             <!-- Lists will be injected here -->
             <p class="placeholder">Click "Scan" to find lists on the current page.</p>
         </div>
 
-        <button id="exportBtn" class="secondary-btn" disabled>Export Selected</button>
+        <button id="exportBtn" class="secondary-btn" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4m7-10l5 5m5-5H3"></path>
+            </svg>
+            Export Selected
+        </button>
         <div id="status"></div>
     </div>
     <script src="libs/jszip.min.js"></script>
