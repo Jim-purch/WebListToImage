@@ -5,10 +5,10 @@ function scanForLists() {
     detectedLists = [];
     // Basic heuristic: Find parents with multiple children of the same tag
     const allElements = document.body.querySelectorAll('*');
-    
+
     allElements.forEach(el => {
         const children = Array.from(el.children);
-        if (children.length < 2) return; 
+        if (children.length < 2) return;
 
         const tagGroups = {};
         children.forEach(child => {
@@ -20,7 +20,7 @@ function scanForLists() {
         for (const [tag, items] of Object.entries(tagGroups)) {
             if (items.length >= 3) {
                 let sampleText = "";
-                for(let item of items) {
+                for (let item of items) {
                     if (item.innerText && item.innerText.trim().length > 0) {
                         sampleText = item.innerText.trim().substring(0, 50).replace(/\n/g, ' ');
                         break;
@@ -58,13 +58,22 @@ function highlightList(id) {
     if (!list) return;
 
     currentHighlight = list;
-    
+
     list.items.forEach(item => {
         item.style.outline = '2px dashed red';
     });
-    
+
     if (list.items.length > 0) {
         list.items[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function clearHighlight() {
+    if (currentHighlight !== null) {
+        currentHighlight.items.forEach(item => {
+            item.style.outline = '';
+        });
+        currentHighlight = null;
     }
 }
 
@@ -74,16 +83,16 @@ async function prepareItem(listId, index) {
     if (!list || !list.items[index]) throw new Error("Item not found");
 
     const item = list.items[index];
-    
+
     // Scroll into view
     item.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-    
+
     // Wait for scroll/render (short delay)
     await new Promise(r => setTimeout(r, 200));
 
     // Get coordinates relative to viewport
     const rect = item.getBoundingClientRect();
-    
+
     // Get text for CSV
     const text = (item.innerText || "").replace(/"/g, '""').replace(/\n/g, ' ');
 
@@ -106,6 +115,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ lists });
     } else if (request.action === "HIGHLIGHT") {
         highlightList(request.id);
+        sendResponse({ success: true });
+    } else if (request.action === "CLEAR_HIGHLIGHT") {
+        clearHighlight();
         sendResponse({ success: true });
     } else if (request.action === "PREPARE_ITEM") {
         prepareItem(request.listId, request.index).then(data => {
