@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
     exportBtn.addEventListener('click', async () => {
         if (selectedListId === null) return;
 
+        const dataOnlyMode = document.getElementById('dataOnlyMode').checked;
+
         statusDiv.textContent = "Initializing export...";
         exportBtn.disabled = true;
 
@@ -45,69 +47,157 @@ document.addEventListener('DOMContentLoaded', () => {
             await sendMessageAsync(tabId, { action: "CLEAR_HIGHLIGHT" });
 
             const count = info.count;
-            const zip = new JSZip();
-            const folder = zip.folder("images");
-            let csvContent = "\uFEFFIndex,Text,ImageFile\n";
 
-            for (let i = 0; i < count; i++) {
-                statusDiv.textContent = `Processing item ${i + 1} / ${count}...`;
+            if (dataOnlyMode) {
+                // Data Only Mode - Export comprehensive data without screenshots
+                statusDiv.textContent = "Analyzing data fields...";
 
-                // 1. Prepare item (scroll, get rect)
-                const prep = await sendMessageAsync(tabId, { action: "PREPARE_ITEM", listId: selectedListId, index: i });
-                if (!prep.success) {
-                    console.error("Error preparing item", i, prep.error);
-                    csvContent += `${i + 1},"ERROR","ERROR"\n`;
-                    continue;
+                // First pass: collect all unique field names
+                const fieldsResponse = await sendMessageAsync(tabId, { action: "GET_ALL_FIELDS", id: selectedListId });
+                if (!fieldsResponse.success) {
+                    throw new Error("Failed to get field names");
                 }
 
-                const { rect, devicePixelRatio, text } = prep.data;
+                // Sort fields: 'text' first, then alphabetically
+                const fields = fieldsResponse.fields.sort((a, b) => {
+                    if (a === 'text') return -1;
+                    if (b === 'text') return 1;
+                    return a.localeCompare(b);
+                });
 
-                // 2. Capture visible tab with retry
-                let dataUrl;
-                try {
-                    dataUrl = await captureTabWithRetry();
-                } catch (err) {
-                    console.error("Failed to capture after retries", i, err);
-                    csvContent += `${i + 1},"ERROR","ERROR_CAPTURE"\n`;
-                    continue;
+                // Collect all items data
+                const allItems = [];
+                for (let i = 0; i < count; i++) {
+                    statusDiv.textContent = `Extracting data ${i + 1} / ${count}...`;
+
+                    const data = await sendMessageAsync(tabId, { action: "GET_ITEM_DATA", listId: selectedListId, index: i });
+                    if (!data.success) {
+                        console.error("Error getting item data", i, data.error);
+                        allItems.push({ _error: true });
+                        continue;
+                    }
+                    allItems.push(data);
                 }
 
-                // 3. Crop image
-                const croppedDataUrl = await cropImage(dataUrl, rect, devicePixelRatio);
+                // Generate CSV with dynamic columns
+                statusDiv.textContent = "Generating CSV...";
 
-                // 4. Add to ZIP
-                const filename = `image_${i + 1}.jpg`;
-                const base64Data = croppedDataUrl.split(',')[1];
-                folder.file(filename, base64Data, { base64: true });
-                csvContent += `${i + 1},"${text}","images/${filename}"\n`;
+                // Header row with readable column names
+                const headerNames = {
+                    'text': '显示文本',
+                    'title': '悬停提示(Title)',
+                    'childTitles': '子元素提示',
+                    'ariaLabel': 'ARIA标签',
+                    'ariaDescription': 'ARIA描述',
+                    'imageAlts': '图片说明',
+                    'imageSrcs': '图片地址',
+                    'links': '链接地址',
+                    'linkTitles': '链接提示',
+                    'inputValues': '输入值'
+                };
 
-                // Delay to prevent hitting quota (max 2 calls per second usually)
-                await new Promise(r => setTimeout(r, 200));
+                let csvContent = "\uFEFF" + "序号," + fields.map(f => {
+                    // Use readable name if available, otherwise format the field name
+                    if (headerNames[f]) return `"${headerNames[f]}"`;
+                    if (f.startsWith('data_')) return `"data-${f.substring(5)}"`;
+                    return `"${f}"`;
+                }).join(',') + "\n";
+
+                // Data rows
+                allItems.forEach((item, index) => {
+                    const row = [index + 1];
+                    fields.forEach(field => {
+                        const value = item[field] || '';
+                        row.push(`"${value}"`);
+                    });
+                    csvContent += row.join(',') + "\n";
+                });
+
+                // Download CSV directly
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+
+                chrome.downloads.download({
+                    url: url,
+                    filename: "list_data.csv",
+                    saveAs: true
+                }, (downloadId) => {
+                    if (chrome.runtime.lastError) {
+                        console.error("Download failed", chrome.runtime.lastError);
+                        statusDiv.textContent = "Download failed: " + chrome.runtime.lastError.message;
+                    } else {
+                        setTimeout(() => URL.revokeObjectURL(url), 10000);
+                    }
+                });
+
+                statusDiv.textContent = "Export complete!";
+
+            } else {
+                // Screenshot Mode - Original behavior
+                const zip = new JSZip();
+                const folder = zip.folder("images");
+                let csvContent = "\uFEFFIndex,Text,ImageFile\n";
+
+                for (let i = 0; i < count; i++) {
+                    statusDiv.textContent = `Processing item ${i + 1} / ${count}...`;
+
+                    // 1. Prepare item (scroll, get rect)
+                    const prep = await sendMessageAsync(tabId, { action: "PREPARE_ITEM", listId: selectedListId, index: i });
+                    if (!prep.success) {
+                        console.error("Error preparing item", i, prep.error);
+                        csvContent += `${i + 1},"ERROR","ERROR"\n`;
+                        continue;
+                    }
+
+                    const { rect, devicePixelRatio, text } = prep.data;
+
+                    // 2. Capture visible tab with retry
+                    let dataUrl;
+                    try {
+                        dataUrl = await captureTabWithRetry();
+                    } catch (err) {
+                        console.error("Failed to capture after retries", i, err);
+                        csvContent += `${i + 1},"ERROR","ERROR_CAPTURE"\n`;
+                        continue;
+                    }
+
+                    // 3. Crop image
+                    const croppedDataUrl = await cropImage(dataUrl, rect, devicePixelRatio);
+
+                    // 4. Add to ZIP
+                    const filename = `image_${i + 1}.jpg`;
+                    const base64Data = croppedDataUrl.split(',')[1];
+                    folder.file(filename, base64Data, { base64: true });
+                    csvContent += `${i + 1},"${text}","images/${filename}"\n`;
+
+                    // Delay to prevent hitting quota (max 2 calls per second usually)
+                    await new Promise(r => setTimeout(r, 200));
+                }
+
+                // 5. Generate and Download
+                statusDiv.textContent = "Generating ZIP...";
+                zip.file("data.csv", csvContent);
+                const content = await zip.generateAsync({ type: "blob" });
+
+                const url = URL.createObjectURL(content);
+
+                // Use chrome.downloads to prompt usage of 'Save As'
+                chrome.downloads.download({
+                    url: url,
+                    filename: "list_export.zip",
+                    saveAs: true
+                }, (downloadId) => {
+                    if (chrome.runtime.lastError) {
+                        console.error("Download failed", chrome.runtime.lastError);
+                        statusDiv.textContent = "Download failed: " + chrome.runtime.lastError.message;
+                    } else {
+                        // Revoke URL after a delay or just let it stay (browser handles it mostly)
+                        setTimeout(() => URL.revokeObjectURL(url), 10000);
+                    }
+                });
+
+                statusDiv.textContent = "Export complete!";
             }
-
-            // 5. Generate and Download
-            statusDiv.textContent = "Generating ZIP...";
-            zip.file("data.csv", csvContent);
-            const content = await zip.generateAsync({ type: "blob" });
-
-            const url = URL.createObjectURL(content);
-
-            // Use chrome.downloads to prompt usage of 'Save As'
-            chrome.downloads.download({
-                url: url,
-                filename: "list_export.zip",
-                saveAs: true
-            }, (downloadId) => {
-                if (chrome.runtime.lastError) {
-                    console.error("Download failed", chrome.runtime.lastError);
-                    statusDiv.textContent = "Download failed: " + chrome.runtime.lastError.message;
-                } else {
-                    // Revoke URL after a delay or just let it stay (browser handles it mostly)
-                    setTimeout(() => URL.revokeObjectURL(url), 10000);
-                }
-            });
-
-            statusDiv.textContent = "Export complete!";
 
         } catch (e) {
             console.error(e);
